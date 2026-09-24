@@ -14,23 +14,17 @@ def RSI(c):
     if len(c)<15: return 50
     g=sum(max(0,c[i]-c[i-1]) for i in range(-14,0)); l=sum(max(0,c[i-1]-c[i]) for i in range(-14,0))
     return 70 if l==0 else 100-(100/(1+(g/14)/(l/14)))
-
 def fetch_any(coin):
-    for dom in ["data-api.binance.vision","api1.binance.com","api2.binance.com"]:
+    for dom in ["data-api.binance.vision","api1.binance.com"]:
         j=G(f"https://{dom}/api/v3/klines?symbol={coin}USDT&interval=15m&limit=50")
         if j and isinstance(j,list) and len(j)>20:
             try: return [float(x[4]) for x in j],[float(x[3]) for x in j],"Binance"
             except: pass
-    for url,src,ci,li in [
-        (f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT","KuCoin",2,4),
-        (f"https://api.bybit.com/v5/market/kline?category=spot&symbol={coin}USDT&interval=15&limit=50","Bybit",4,3),
-        (f"https://www.okx.com/api/v5/market/candles?instId={coin}-USDT&bar=15m&limit=50","OKX",4,3),
-        (f"https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair={coin}_USDT&interval=15m&limit=50","Gate",2,3)
-    ]:
+    for url,src,ci,li in [(f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT","KuCoin",2,4),(f"https://api.bybit.com/v5/market/kline?category=spot&symbol={coin}USDT&interval=15&limit=50","Bybit",4,3)]:
         j=G(url)
         if not j: continue
         try:
-            data=list(reversed(j['data'])) if 'data' in j else list(reversed(j['result']['list'])) if 'result' in j and 'list' in j['result'] else list(reversed(j)) if isinstance(j,list) else []
+            data=list(reversed(j['data'])) if 'data' in j else list(reversed(j['result']['list'])) if 'result' in j else []
             if len(data)>20: return [float(x[ci]) for x in data],[float(x[li]) for x in data],src
         except: pass
     j=G(f"https://min-api.cryptocompare.com/data/v2/histominute?fsym={coin}&tsym=USD&limit=50&aggregate=15")
@@ -39,15 +33,8 @@ def fetch_any(coin):
         except: pass
     return None
 
-S("**👑 V11.3 ULTIMATE NO LIMIT - ALL EXCHANGES + ALL COINS SCAN START**")
-
-# STEP 1: TRADINGVIEW FULL - 1000 coins tak
-tv_all = G("https://scanner.tradingview.com/crypto/scan","POST",{
-    "filter":[{"left":"exchange","operation":"equal","right":"BINANCE"},{"left":"name","operation":"match","right":"USDT"}],
-    "columns":["close","RSI","change","market_cap","volume","name"],
-    "range":{"from":0,"to":1000},
-    "sort":{"sortBy":"market_cap","sortOrder":"desc"}
-})
+S("**V11.3 ULTIMATE NO LIMIT SCAN START**")
+tv_all = G("https://scanner.tradingview.com/crypto/scan","POST",{"filter":[{"left":"exchange","operation":"equal","right":"BINANCE"},{"left":"name","operation":"match","right":"USDT"}],"columns":["close","RSI","change"],"range":{"from":0,"to":1000},"sort":{"sortBy":"market_cap","sortOrder":"desc"}})
 results=[]
 if tv_all and 'data' in tv_all:
     for d in tv_all['data']:
@@ -58,27 +45,42 @@ if tv_all and 'data' in tv_all:
             if c==0: continue
             results.append((sym,r,c,c*0.99,"TradingView-1000",ch,50))
         except: continue
-    S(f"✅ TradingView ALL: {len(results)} coins")
+    S(f"TradingView ALL: {len(results)} coins")
 
-# STEP 2: ALL EXCHANGES - Binance ke saare USDT pairs nikalo
-S("🔍 Fetching ALL symbols from exchanges...")
+S("Fetching ALL symbols...")
 all_coins=set()
-# Binance ALL
 j=G("https://data-api.binance.vision/api/v3/exchangeInfo")
 if not j: j=G("https://api.binance.com/api/v3/exchangeInfo")
 if j and 'symbols' in j:
     for s in j['symbols']:
-        if s.get('quoteAsset')=='USDT' and s.get('status')=='TRADING':
-            all_coins.add(s.get('baseAsset'))
-S(f"Binance ALL USDT pairs: {len(all_coins)}")
+        if s.get('quoteAsset')=='USDT' and s.get('status')=='TRADING': all_coins.add(s.get('baseAsset'))
 
-# KuCoin ALL
-j=G("https://api.kucoin.com/api/v1/symbols")
-if j and 'data' in j:
-    for s in j['data']:
-        if s['quoteCurrency']=='USDT' and s['enableTrading']: all_coins.add(s['baseCurrency'])
-S(f"Total unique coins after ALL exchanges: {len(all_coins)}")
+S(f"Binance ALL USDT: {len(all_coins)}")
+tv_syms=set([x[0].replace("USDT","") for x in results])
+to_scan=list(all_coins - tv_syms)
+S(f"Scanning remaining {len(to_scan)} coins...")
 
-# STEP 3: AB HAR COIN KO SCAN KARO - NO LIMIT
-# TradingView me jo nahi mile unko exchanges se
-tv_syms=set([x[0].replace("USDT","") for x in
+for idx, coin in enumerate(to_scan):
+    if idx>300: break
+    res=fetch_any(coin)
+    if not res: continue
+    closes,lows,src=res
+    r=RSI(closes); price=closes[-1]
+    if r<50: results.append((f"{coin}USDT",r,price,min(lows[-20:]) if len(lows)>=20 else price*0.99,src,0,50))
+    if idx%50==0 and idx>0:
+        S(f"Progress: {idx}/{len(to_scan)}")
+        time.sleep(1)
+
+if results:
+    results=sorted(results, key=lambda x: x[1])
+    low=[x for x in results if x[1]<40]
+    S(f"FINAL: Total {len(results)} | Low RSI {len(low)}")
+    for sym,rsi,price,sup,src,change,stoch in results[:15]:
+        ps=f"{price:.2f}" if price>100 else f"{price:.6f}"
+        ss=f"{sup:.2f}" if sup>100 else f"{sup:.6f}"
+        if rsi<35: S(f"LONG | {sym} | RSI {rsi:.0f} | {src} Price {ps} SL {ss}")
+        elif rsi<40: S(f"MEDIUM | {sym} | RSI {rsi:.0f} | {src} Price {ps}")
+else:
+    S("No data")
+
+S("Scan Complete")
