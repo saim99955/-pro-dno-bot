@@ -24,47 +24,56 @@ def calc(closes, highs, lows, vols):
     g=sum(max(0, closes[i]-closes[i-1]) for i in range(-14,0))
     l=sum(max(0, closes[i-1]-closes[i]) for i in range(-14,0))
     rsi=100 if l==0 else 100-(100/(1+(g/14)/(l/14)))
-    ema20=ema(closes[-20:],20); ema50=ema(closes[-50:],50); ema200=ema(closes[-100:],200)
+    ema20=ema(closes[-20:],20); ema50=ema(closes[-50:],50)
     ma20=sum(closes[-20:])/20
     std=math.sqrt(sum((x-ma20)**2 for x in closes[-20:])/20)
     bb_u,bb_l=ma20+2*std, ma20-2*std
     macd=ema(closes[-26:],12)-ema(closes[-26:],26)
     stoch=100*(closes[-1]-min(lows[-14:]))/(max(highs[-14:])-min(lows[-14:])) if max(highs[-14:])!=min(lows[-14:]) else 50
-    vwap=sum(c*v for c,v in zip(closes[-20:], vols[-20:]))/sum(vols[-20:])
     avg_vol=sum(vols[-20:-1])/19 if len(vols)>20 else 1
     spike=vols[-1]/avg_vol if avg_vol else 1
     sup, res=min(lows[-20:]), max(highs[-20:])
-    return rsi,ema20,ema50,ema200,bb_u,bb_l,macd,stoch,vwap,spike,sup,res,closes[-1]
+    return rsi,ema20,ema50,bb_u,bb_l,macd,stoch,spike,sup,res,closes[-1]
 
-send("**👑 V6 LITE ONLINE - Signals Guaranteed**")
+send("**🔥 V6 ACTIVE ONLINE - Trending + Oversold**")
 tick=safe_get("https://fapi.binance.com/fapi/v1/ticker/24hr")
 if not tick: tick=safe_get("https://api.binance.com/api/v3/ticker/24hr")
 
-found=0
+oversold_list=[]
+trending_list=[]
+
 if tick:
     for t in tick:
         sym=t['symbol']
         if not sym.endswith("USDT"): continue
-        if any(x in sym for x in ["BULL","BEAR"]): continue
+        if any(x in sym for x in ["BULL","BEAR","UP","DOWN"]): continue
         try: ch=float(t['priceChangePercent']); qv=float(t['quoteVolume']); price=float(t['lastPrice'])
         except: continue
-        if qv < 300000: continue
-        d15=get_klines(sym,"15m",100)
-        if not d15: continue
-        c15,v15,h15,l15=d15
-        rsi15,e20,e50,e200,bb_u,bb_l,macd,stoch,vwap,spike,sup,res,pr = calc(c15,h15,l15,v15)
+        if qv < 800000: continue
+        d=get_klines(sym,"15m",100)
+        if not d: continue
+        c,v,h,l=d
+        rsi,e20,e50,bb_u,bb_l,macd,stoch,spike,sup,res,pr = calc(c,h,l,v)
 
-        # LITE LOGIC - Jaldi signal dega
-        if rsi15 < 40 and pr < e20: # Pehle 33 tha, ab 40
-            found+=1
-            send(f"🚀 **CRYPTO LONG | {sym}**\nPrice `{price}` | RSI `{rsi15:.0f}` | Stoch `{stoch:.0f}`\nTrend: Below EMA20 | BB {'Lower Bounce' if pr<bb_l else 'Near Lower'} | Vol {spike:.1f}x\nSL `{sup:.4f}` | TP +2% / +5%")
-            if found>=5: break # 5 signals max
+        if rsi < 38 and pr < e20:
+            oversold_list.append((sym, rsi, ch, spike, price, sup))
+        elif ch > 3 and rsi > 50 and rsi < 65 and pr > e20 and pr > e50:
+            trending_list.append((sym, rsi, ch, spike, price))
 
-if found==0:
-    send("ℹ️ **CRYPTO:** No strong oversold now (RSI >40). Market is sideways.")
+    # Top 3 oversold
+    oversold_list = sorted(oversold_list, key=lambda x: x[1])[:3]
+    for sym,rsi,ch,spike,price,sup in oversold_list:
+        send(f"🚀 **CRYPTO OVERSOLD LONG | {sym}**\nPrice `{price}` | RSI `{rsi:.0f}` | Change `{ch:.1f}%` | Vol `{spike:.1f}x`\nSL `{sup:.4f}` | TP +2% / +5%")
 
-# FOREX - Threshold kam kiya 35 kar diya
-f_found=0
+    # Agar oversold nahi to trending dega
+    if not oversold_list:
+        trending_list = sorted(trending_list, key=lambda x: x[2], reverse=True)[:3]
+        for sym,rsi,ch,spike,price in trending_list:
+            send(f"📈 **CRYPTO TRENDING LONG | {sym}**\nPrice `{price}` | RSI `{rsi:.0f}` | Pump `+{ch:.1f}%` | Vol `{spike:.1f}x`\nNote: Uptrend continuation - Not oversold")
+        if not trending_list:
+            send("ℹ️ **CRYPTO:** Market fully sideways. No oversold or trending. Best to WAIT.")
+
+# FOREX - Hamesha kuch na kuch dega
 for yahoo,name,flag in [("EURUSD=X","EUR/USD","🇪🇺/🇺🇸"),("EURJPY=X","EUR/JPY","🇪🇺/🇯🇵"),("GBPUSD=X","GBP/USD","🇬🇧/🇺🇸"),("AUDUSD=X","AUD/USD","🇦🇺/🇺🇸"),("GC=F","GOLD","🟡 GOLD")]:
     j=safe_get(f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo}?interval=15m&range=5d")
     try:
@@ -73,15 +82,13 @@ for yahoo,name,flag in [("EURUSD=X","EUR/USD","🇪🇺/🇺🇸"),("EURJPY=X","
         highs=[h for h in q['high'] if h is not None][-100:]
         lows=[l for l in q['low'] if l is not None][-100:]
         vols=[1]*len(closes)
-        rsi,e20,e50,e200,bb_u,bb_l,macd,stoch,vwap,spike,sup,res,price = calc(closes,highs,lows,vols)
-        if rsi < 38: # pehle 33 tha
-            f_found+=1
+        rsi,e20,e50,bb_u,bb_l,macd,stoch,spike,sup,res,price = calc(closes,highs,lows,vols)
+        if rsi < 38:
             pip=0.01 if "JPY" in name else 0.0001
             if "GOLD" in name: pip=1.0
             send(f"{flag} **FOREX LONG | {name}**\nPrice `{price:.4f}` | RSI `{rsi:.0f}` | Stoch `{stoch:.0f}`\nEntry `{price:.4f}` | SL `{price-15*pip:.4f}` | TP `{price+25*pip:.4f}`")
+        elif rsi < 45:
+            send(f"{flag} **FOREX WATCH | {name}**\nPrice `{price:.4f}` | RSI `{rsi:.0f}` - Getting oversold, wait for <38")
     except: pass
 
-if f_found==0:
-    send("ℹ️ **FOREX:** No oversold pairs now. Watching...")
-
-send("✅ **V6 LITE Scan Done**")
+send("✅ **V6 ACTIVE Scan Done - Next in 1 Hour**")
